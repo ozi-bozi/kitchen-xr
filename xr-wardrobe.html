@@ -6,31 +6,20 @@
 <title>XR Wardrobe — three.js</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a0f; color: #e8e4d9; font-family: 'Courier New', monospace; overflow: hidden; }
+  body { background: #000; overflow: hidden; }
 
   #overlay {
     position: fixed; inset: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     background: #0a0a0f;
+    color: #e8e4d9;
+    font-family: 'Courier New', monospace;
     z-index: 100;
     gap: 2rem;
   }
-  #overlay h1 {
-    font-size: clamp(1.4rem, 4vw, 2rem);
-    font-weight: 400;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: #e8e4d9;
-  }
-  #overlay p {
-    font-size: 0.85rem;
-    color: #888;
-    text-align: center;
-    max-width: 340px;
-    line-height: 1.7;
-    letter-spacing: 0.03em;
-  }
+  #overlay h1 { font-size: 2rem; font-weight: 400; letter-spacing: 0.15em; text-transform: uppercase; }
+  #overlay p { font-size: 0.85rem; color: #888; text-align: center; max-width: 340px; line-height: 1.7; }
   #xr-btn {
     padding: 14px 36px;
     background: transparent;
@@ -45,54 +34,20 @@
   }
   #xr-btn:hover { background: #e8e4d9; color: #0a0a0f; }
   #xr-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  #not-supported { display: none; color: #c0392b; font-size: 0.8rem; }
 
-  #status {
-    position: fixed; bottom: 1.5rem; left: 50%;
+  #info {
+    position: fixed; top: 1rem; left: 50%;
     transform: translateX(-50%);
-    font-size: 0.75rem; letter-spacing: 0.1em;
-    color: #555; z-index: 200;
-    pointer-events: none;
-  }
-
-  #controls {
-    position: fixed; bottom: 2rem; left: 50%;
-    transform: translateX(-50%);
-    display: none;
-    gap: 12px;
-    z-index: 200;
-  }
-  #controls.visible { display: flex; }
-  .ctrl-btn {
-    padding: 10px 20px;
-    background: rgba(232,228,217,0.08);
-    border: 1px solid rgba(232,228,217,0.25);
-    color: #e8e4d9;
-    font-family: inherit;
-    font-size: 0.75rem;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    text-transform: uppercase;
-    backdrop-filter: blur(8px);
-    border-radius: 2px;
-    transition: background 0.15s;
-  }
-  .ctrl-btn:hover { background: rgba(232,228,217,0.18); }
-
-  canvas { display: block; }
-
-  #info-panel {
-    position: fixed; top: 1.5rem; right: 1.5rem;
-    font-size: 0.7rem; color: #444;
-    letter-spacing: 0.08em;
-    line-height: 2;
-    z-index: 200;
-    pointer-events: none;
-  }
-  #not-supported {
-    display: none;
-    color: #c0392b;
+    color: #fff;
+    font-family: monospace;
     font-size: 0.8rem;
-    letter-spacing: 0.08em;
+    background: rgba(0,0,0,0.5);
+    padding: 8px 16px;
+    border-radius: 4px;
+    z-index: 200;
+    pointer-events: none;
+    display: none;
   }
 </style>
 </head>
@@ -100,29 +55,12 @@
 
 <div id="overlay">
   <h1>XR Furniture</h1>
-  <p>
-    הנח ארון בחדר שלך.<br>
-    לחץ על הרצפה כדי למקם · גלגל שמאל/ימין להסתובב
-  </p>
+  <p>הנח ארון בחדר שלך.<br>כוון למשטח · לחץ Trigger למיקום<br>Thumbstick לסובב / גודל</p>
   <button id="xr-btn">Enter Mixed Reality</button>
-  <span id="not-supported">WebXR לא נתמך בדפדפן זה</span>
+  <span id="not-supported">WebXR לא נתמך — פתח ב-Meta Quest Browser</span>
 </div>
 
-<div id="info-panel">
-  <div>TRIGGER → מקם</div>
-  <div>SQUEEZE → הרם</div>
-  <div>THUMBSTICK X → סובב</div>
-  <div>THUMBSTICK Y → גודל</div>
-</div>
-
-<div id="controls">
-  <button class="ctrl-btn" id="btn-rotate-l">↺ סובב</button>
-  <button class="ctrl-btn" id="btn-scale-up">＋ גדל</button>
-  <button class="ctrl-btn" id="btn-scale-dn">－ קטן</button>
-  <button class="ctrl-btn" id="btn-rotate-r">↻ סובב</button>
-</div>
-
-<div id="status"></div>
+<div id="info">כוון למשטח ולחץ Trigger</div>
 
 <script type="importmap">
 {
@@ -135,311 +73,205 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { XRButton } from 'three/addons/webxr/XRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 
-// ─── Scene ───────────────────────────────────────────────
-const scene = new THREE.Scene();
-
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 30);
-
+// ─── Renderer ────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.xr.enabled = true;
-renderer.setClearColor(0x000000, 0); // transparent for passthrough
+
+// חשוב: מגדיר passthrough מלא לכל החדר
+renderer.xr.setFramebufferScaleFactor(1.0);
 document.body.appendChild(renderer.domElement);
 
+// ─── Scene ───────────────────────────────────────────────
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 50);
+scene.add(camera);
+
 // ─── Lights ──────────────────────────────────────────────
-const ambient = new THREE.AmbientLight(0xffffff, 1.2);
-scene.add(ambient);
+scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+const dir = new THREE.DirectionalLight(0xfff5e0, 2.5);
+dir.position.set(2, 4, 2);
+scene.add(dir);
+const fill = new THREE.DirectionalLight(0xe0eeff, 0.8);
+fill.position.set(-2, 2, -1);
+scene.add(fill);
 
-const dirLight = new THREE.DirectionalLight(0xfff5e0, 2.5);
-dirLight.position.set(2, 4, 2);
-dirLight.castShadow = true;
-scene.add(dirLight);
-
-const fillLight = new THREE.DirectionalLight(0xe0eeff, 0.8);
-fillLight.position.set(-2, 2, -1);
-scene.add(fillLight);
-
-// ─── Wardrobe Model (procedural) ─────────────────────────
+// ─── Wardrobe ────────────────────────────────────────────
 function buildWardrobe() {
-  const group = new THREE.Group();
+  const g = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0xc8a96e, roughness: 0.7 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3d2b1f, roughness: 0.8 });
+  const handle = new THREE.MeshStandardMaterial({ color: 0xb0986a, roughness: 0.3, metalness: 0.6 });
+  const edge = new THREE.MeshStandardMaterial({ color: 0x5a3e28, roughness: 0.9 });
 
-  const woodMat = new THREE.MeshStandardMaterial({
-    color: 0xc8a96e, roughness: 0.7, metalness: 0.0
-  });
-  const darkMat = new THREE.MeshStandardMaterial({
-    color: 0x3d2b1f, roughness: 0.8, metalness: 0.0
-  });
-  const handleMat = new THREE.MeshStandardMaterial({
-    color: 0xb0986a, roughness: 0.3, metalness: 0.6
-  });
-  const edgeMat = new THREE.MeshStandardMaterial({
-    color: 0x5a3e28, roughness: 0.9
-  });
+  const W = 1.0, H = 2.0, D = 0.55, t = 0.03;
 
-  const W = 1.0, H = 2.0, D = 0.55;
-  const t = 0.03; // thickness
-
-  // Body panels
-  const panels = [
-    // top
-    { s: [W, t, D], p: [0, H/2, 0] },
-    // bottom
-    { s: [W, t, D], p: [0, -H/2, 0] },
-    // left side
-    { s: [t, H, D], p: [-W/2, 0, 0] },
-    // right side
-    { s: [t, H, D], p: [W/2, 0, 0] },
-    // back
-    { s: [W, H, t*0.5], p: [0, 0, -D/2] },
-    // middle shelf
-    { s: [W - t*2, t, D - t], p: [0, 0.15, 0] },
-    // center divider
-    { s: [t, H - t*2, D - t], p: [0, 0, 0] },
-  ];
-
-  panels.forEach(({ s, p }) => {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(...s),
-      woodMat
-    );
-    mesh.position.set(...p);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+  [
+    [W, t, D, 0, H/2, 0],
+    [W, t, D, 0, -H/2, 0],
+    [t, H, D, -W/2, 0, 0],
+    [t, H, D, W/2, 0, 0],
+    [W, H, t*0.5, 0, 0, -D/2],
+    [W-t*2, t, D-t, 0, 0.15, 0],
+    [t, H-t*2, D-t, 0, 0, 0],
+  ].forEach(([w,h,d,x,y,z]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), wood);
+    m.position.set(x,y,z);
+    g.add(m);
   });
 
-  // Doors (2 — left and right halves)
-  const doorW = (W - t * 3) / 2;
-  const doorH = H - t * 2;
-
-  [-1, 1].forEach(side => {
-    const doorGroup = new THREE.Group();
-    doorGroup.position.set(side * (doorW / 2 + t / 2), 0, D / 2);
-
-    // Door panel
-    const door = new THREE.Mesh(
-      new THREE.BoxGeometry(doorW, doorH, t),
-      new THREE.MeshStandardMaterial({ color: 0xd4aa75, roughness: 0.65 })
-    );
-    door.castShadow = true;
-    doorGroup.add(door);
-
-    // Door frame inset detail
-    const inset = new THREE.Mesh(
-      new THREE.BoxGeometry(doorW * 0.78, doorH * 0.38, t * 0.4),
-      edgeMat
-    );
-    inset.position.set(0, doorH * 0.27, t * 0.3);
-    doorGroup.add(inset);
-
-    const inset2 = new THREE.Mesh(
-      new THREE.BoxGeometry(doorW * 0.78, doorH * 0.5, t * 0.4),
-      edgeMat
-    );
-    inset2.position.set(0, -doorH * 0.2, t * 0.3);
-    doorGroup.add(inset2);
-
-    // Handle
-    const handle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012, 0.012, 0.12, 12),
-      handleMat
-    );
-    handle.rotation.z = Math.PI / 2;
-    handle.position.set(-side * (doorW * 0.38), 0, t * 0.7);
-    doorGroup.add(handle);
-
-    // Handle backing plate
-    const plate = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.035, 0.008),
-      handleMat
-    );
-    plate.position.set(-side * (doorW * 0.38), 0, t * 0.65);
-    doorGroup.add(plate);
-
-    group.add(doorGroup);
+  const dW = (W - t*3)/2, dH = H - t*2;
+  [-1,1].forEach(s => {
+    const dg = new THREE.Group();
+    dg.position.set(s*(dW/2+t/2), 0, D/2);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(dW,dH,t),
+      new THREE.MeshStandardMaterial({ color: 0xd4aa75, roughness: 0.65 }));
+    dg.add(door);
+    const inset1 = new THREE.Mesh(new THREE.BoxGeometry(dW*0.78,dH*0.38,t*0.4), edge);
+    inset1.position.set(0, dH*0.27, t*0.3); dg.add(inset1);
+    const inset2 = new THREE.Mesh(new THREE.BoxGeometry(dW*0.78,dH*0.5,t*0.4), edge);
+    inset2.position.set(0, -dH*0.2, t*0.3); dg.add(inset2);
+    const h1 = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,0.12,12), handle);
+    h1.rotation.z = Math.PI/2;
+    h1.position.set(-s*(dW*0.38), 0, t*0.7); dg.add(h1);
+    g.add(dg);
   });
 
-  // Legs (4 small feet)
-  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
-    const leg = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.06, 0.06),
-      darkMat
-    );
-    leg.position.set(sx * (W / 2 - 0.06), -H / 2 - 0.03, sz * (D / 2 - 0.06));
-    group.add(leg);
+  [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sz]) => {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,0.06), dark);
+    leg.position.set(sx*(W/2-0.06), -H/2-0.03, sz*(D/2-0.06));
+    g.add(leg);
   });
 
-  // Top crown molding
-  const crown = new THREE.Mesh(
-    new THREE.BoxGeometry(W + 0.04, 0.04, D + 0.04),
-    edgeMat
-  );
-  crown.position.set(0, H / 2 + 0.02, 0);
-  group.add(crown);
+  const crown = new THREE.Mesh(new THREE.BoxGeometry(W+0.04,0.04,D+0.04), edge);
+  crown.position.set(0, H/2+0.02, 0);
+  g.add(crown);
 
-  return group;
+  return g;
 }
 
-// ─── Placement ───────────────────────────────────────────
 const wardrobe = buildWardrobe();
 wardrobe.visible = false;
 scene.add(wardrobe);
 
-// Placement indicator (ring on floor)
+// ─── Placement ring ──────────────────────────────────────
 const ringGeo = new THREE.RingGeometry(0.45, 0.5, 48);
 ringGeo.rotateX(-Math.PI / 2);
 const ringMat = new THREE.MeshBasicMaterial({
-  color: 0x88ddcc, transparent: true, opacity: 0.7, side: THREE.DoubleSide
+  color: 0x00ffcc, transparent: true, opacity: 0.8, side: THREE.DoubleSide
 });
-const placementRing = new THREE.Mesh(ringGeo, ringMat);
-scene.add(placementRing);
+const ring = new THREE.Mesh(ringGeo, ringMat);
+ring.visible = false;
+scene.add(ring);
 
-const arrowGeo = new THREE.ConeGeometry(0.04, 0.12, 12);
-arrowGeo.rotateX(Math.PI / 2);
-const arrow = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({ color: 0x88ddcc }));
-arrow.position.set(0, 0.06, -0.4);
-placementRing.add(arrow);
-
-// ─── Hit test ────────────────────────────────────────────
+// ─── State ───────────────────────────────────────────────
 let hitTestSource = null;
-let hitTestSourceRequested = false;
 let placed = false;
-let wardrobeY = 0;
+let rotY = 0, scaleV = 1.0;
 
 // ─── Controllers ─────────────────────────────────────────
-const controllerModelFactory = new XRControllerModelFactory();
+const cmf = new XRControllerModelFactory();
 
-function onSelectStart() {
-  if (!placed) {
+function onSelect() {
+  if (!placed && ring.visible) {
     placed = true;
     wardrobe.visible = true;
-    // Place wardrobe exactly at hit point on floor, center at floor level
-    wardrobe.position.set(
-      placementRing.position.x,
-      placementRing.position.y + 1.0, // 1.0 = half of wardrobe height (H=2.0)
-      placementRing.position.z
-    );
-    placementRing.visible = false;
-    setStatus('ארון מוצב · THUMBSTICK לסובב / שנה גודל');
-    document.getElementById('controls').classList.add('visible');
+    wardrobe.position.set(ring.position.x, ring.position.y + 1.0, ring.position.z);
+    wardrobe.rotation.y = rotY;
+    ring.visible = false;
+    document.getElementById('info').textContent = 'Thumbstick: סובב / גודל';
   }
 }
 
-const controller1 = renderer.xr.getController(0);
-controller1.addEventListener('selectstart', onSelectStart);
-scene.add(controller1);
+[0, 1].forEach(i => {
+  const c = renderer.xr.getController(i);
+  c.addEventListener('selectstart', onSelect);
+  scene.add(c);
+  const grip = renderer.xr.getControllerGrip(i);
+  grip.add(cmf.createControllerModel(grip));
+  scene.add(grip);
+});
 
-const controller2 = renderer.xr.getController(1);
-controller2.addEventListener('selectstart', onSelectStart);
-scene.add(controller2);
-
-const grip1 = renderer.xr.getControllerGrip(0);
-grip1.add(controllerModelFactory.createControllerModel(grip1));
-scene.add(grip1);
-
-const grip2 = renderer.xr.getControllerGrip(1);
-grip2.add(controllerModelFactory.createControllerModel(grip2));
-scene.add(grip2);
-
-// ─── Thumbstick for rotate / scale ───────────────────────
-let rotationY = 0;
-let scaleVal = 1.0;
-
-// ─── XR Session setup ────────────────────────────────────
+// ─── Session start ───────────────────────────────────────
 renderer.xr.addEventListener('sessionstart', async () => {
   const session = renderer.xr.getSession();
   document.getElementById('overlay').style.display = 'none';
-  setStatus('כוון למשטח · לחץ Trigger למיקום');
+  document.getElementById('info').style.display = 'block';
 
-  // Use local-floor so the scene is anchored to the real floor (fixes the "bubble" problem)
+  // local-floor = הסצנה מעוגנת לרצפה האמיתית, ללא "בועה"
   const floorSpace = await session.requestReferenceSpace('local-floor');
   renderer.xr.setReferenceSpace(floorSpace);
 
-  // Request hit test source from viewer (camera direction)
+  // hit-test מכיוון המבט
   const viewerSpace = await session.requestReferenceSpace('viewer');
   hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
 
   session.addEventListener('end', () => {
     hitTestSource = null;
-    hitTestSourceRequested = false;
-    document.getElementById('overlay').style.display = 'flex';
     placed = false;
     wardrobe.visible = false;
-    placementRing.visible = true;
-    document.getElementById('controls').classList.remove('visible');
+    ring.visible = false;
+    document.getElementById('overlay').style.display = 'flex';
+    document.getElementById('info').style.display = 'none';
   });
 });
 
-// ─── WebXR button ─────────────────────────────────────────
+// ─── XR Button ───────────────────────────────────────────
 const supported = await navigator.xr?.isSessionSupported('immersive-ar').catch(() => false);
 
 if (supported) {
   document.getElementById('xr-btn').addEventListener('click', () => {
     navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['hit-test', 'local-floor'],
-      optionalFeatures: ['hand-tracking']
-    }).then(session => {
-      renderer.xr.setSession(session);
-    }).catch(err => {
-      setStatus('שגיאה: ' + err.message);
-    });
+      optionalFeatures: ['hand-tracking', 'bounded-floor']
+    }).then(s => renderer.xr.setSession(s))
+      .catch(e => alert('שגיאה: ' + e.message));
   });
 } else {
   document.getElementById('xr-btn').disabled = true;
   document.getElementById('not-supported').style.display = 'block';
-  setStatus('דפדפן זה לא תומך ב-WebXR AR. פתח ב-Meta Quest Browser.');
 }
-
-// ─── Desktop controls (for development) ──────────────────
-document.getElementById('btn-rotate-l').addEventListener('click', () => { rotationY += 0.2; wardrobe.rotation.y = rotationY; });
-document.getElementById('btn-rotate-r').addEventListener('click', () => { rotationY -= 0.2; wardrobe.rotation.y = rotationY; });
-document.getElementById('btn-scale-up').addEventListener('click', () => { scaleVal = Math.min(2.5, scaleVal + 0.1); wardrobe.scale.setScalar(scaleVal); });
-document.getElementById('btn-scale-dn').addEventListener('click', () => { scaleVal = Math.max(0.3, scaleVal - 0.1); wardrobe.scale.setScalar(scaleVal); });
 
 // ─── Render loop ─────────────────────────────────────────
 const clock = new THREE.Clock();
 
-renderer.setAnimationLoop((timestamp, frame) => {
+renderer.setAnimationLoop((_, frame) => {
   const t = clock.getElapsedTime();
 
-  // Animate placement ring pulse
-  if (!placed) {
-    ringMat.opacity = 0.5 + 0.25 * Math.sin(t * 3);
-  }
+  // פולס לטבעת
+  if (!placed) ringMat.opacity = 0.5 + 0.3 * Math.sin(t * 4);
 
-  // Hit test
+  // Hit test — מציב את הטבעת על הרצפה האמיתית
   if (frame && hitTestSource && !placed) {
-    const hitTestResults = frame.getHitTestResults(hitTestSource);
-    if (hitTestResults.length > 0) {
-      const hit = hitTestResults[0];
-      const refSpace = renderer.xr.getReferenceSpace();
-      const pose = hit.getPose(refSpace);
+    const hits = frame.getHitTestResults(hitTestSource);
+    if (hits.length > 0) {
+      const pose = hits[0].getPose(renderer.xr.getReferenceSpace());
       if (pose) {
-        placementRing.visible = true;
-        placementRing.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
-        wardrobeY = placementRing.position.y;
+        const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        ring.visible = true;
+        ring.position.setFromMatrixPosition(m);
+        // מיישר את הטבעת לכיוון המבט (ציר Y בלבד)
+        const q = new THREE.Quaternion().setFromRotationMatrix(m);
+        ring.quaternion.copy(q);
+        ring.rotateX(-Math.PI / 2);
       }
     } else {
-      placementRing.visible = false;
+      ring.visible = false;
     }
   }
 
-  // Controller thumbstick
+  // Thumbstick
   const session = renderer.xr.getSession();
   if (session && placed) {
-    for (const source of session.inputSources) {
-      if (!source.gamepad) continue;
-      const axes = source.gamepad.axes;
-      if (axes.length >= 4) {
-        // axes[2] = thumbstick X, axes[3] = thumbstick Y
-        const dx = axes[2];
-        const dy = axes[3];
-        if (Math.abs(dx) > 0.15) { rotationY -= dx * 0.03; wardrobe.rotation.y = rotationY; }
-        if (Math.abs(dy) > 0.15) { scaleVal = Math.max(0.3, Math.min(2.5, scaleVal - dy * 0.01)); wardrobe.scale.setScalar(scaleVal); }
+    for (const src of session.inputSources) {
+      if (!src.gamepad) continue;
+      const ax = src.gamepad.axes;
+      if (ax.length >= 4) {
+        if (Math.abs(ax[2]) > 0.12) { rotY -= ax[2] * 0.03; wardrobe.rotation.y = rotY; }
+        if (Math.abs(ax[3]) > 0.12) { scaleV = Math.max(0.3, Math.min(3.0, scaleV - ax[3]*0.01)); wardrobe.scale.setScalar(scaleV); }
       }
     }
   }
@@ -452,10 +284,6 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
-
-function setStatus(msg) {
-  document.getElementById('status').textContent = msg;
-}
 </script>
 </body>
 </html>
