@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XR Wardrobe — three.js</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e8e4d9; font-family: 'Courier New', monospace; overflow: hidden; }
+
+  #overlay {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: #0a0a0f;
+    z-index: 100;
+    gap: 2rem;
+  }
+  #overlay h1 {
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    font-weight: 400;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #e8e4d9;
+  }
+  #overlay p {
+    font-size: 0.85rem;
+    color: #888;
+    text-align: center;
+    max-width: 340px;
+    line-height: 1.7;
+    letter-spacing: 0.03em;
+  }
+  #xr-btn {
+    padding: 14px 36px;
+    background: transparent;
+    border: 1px solid #e8e4d9;
+    color: #e8e4d9;
+    font-family: inherit;
+    font-size: 0.85rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  #xr-btn:hover { background: #e8e4d9; color: #0a0a0f; }
+  #xr-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  #status {
+    position: fixed; bottom: 1.5rem; left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.75rem; letter-spacing: 0.1em;
+    color: #555; z-index: 200;
+    pointer-events: none;
+  }
+
+  #controls {
+    position: fixed; bottom: 2rem; left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    gap: 12px;
+    z-index: 200;
+  }
+  #controls.visible { display: flex; }
+  .ctrl-btn {
+    padding: 10px 20px;
+    background: rgba(232,228,217,0.08);
+    border: 1px solid rgba(232,228,217,0.25);
+    color: #e8e4d9;
+    font-family: inherit;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    text-transform: uppercase;
+    backdrop-filter: blur(8px);
+    border-radius: 2px;
+    transition: background 0.15s;
+  }
+  .ctrl-btn:hover { background: rgba(232,228,217,0.18); }
+
+  canvas { display: block; }
+
+  #info-panel {
+    position: fixed; top: 1.5rem; right: 1.5rem;
+    font-size: 0.7rem; color: #444;
+    letter-spacing: 0.08em;
+    line-height: 2;
+    z-index: 200;
+    pointer-events: none;
+  }
+  #not-supported {
+    display: none;
+    color: #c0392b;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+  }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <h1>XR Furniture</h1>
+  <p>
+    הנח ארון בחדר שלך.<br>
+    לחץ על הרצפה כדי למקם · גלגל שמאל/ימין להסתובב
+  </p>
+  <button id="xr-btn">Enter Mixed Reality</button>
+  <span id="not-supported">WebXR לא נתמך בדפדפן זה</span>
+</div>
+
+<div id="info-panel">
+  <div>TRIGGER → מקם</div>
+  <div>SQUEEZE → הרם</div>
+  <div>THUMBSTICK X → סובב</div>
+  <div>THUMBSTICK Y → גודל</div>
+</div>
+
+<div id="controls">
+  <button class="ctrl-btn" id="btn-rotate-l">↺ סובב</button>
+  <button class="ctrl-btn" id="btn-scale-up">＋ גדל</button>
+  <button class="ctrl-btn" id="btn-scale-dn">－ קטן</button>
+  <button class="ctrl-btn" id="btn-rotate-r">↻ סובב</button>
+</div>
+
+<div id="status"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { XRButton } from 'three/addons/webxr/XRButton.js';
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+
+// ─── Scene ───────────────────────────────────────────────
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 30);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+renderer.setClearColor(0x000000, 0); // transparent for passthrough
+document.body.appendChild(renderer.domElement);
+
+// ─── Lights ──────────────────────────────────────────────
+const ambient = new THREE.AmbientLight(0xffffff, 1.2);
+scene.add(ambient);
+
+const dirLight = new THREE.DirectionalLight(0xfff5e0, 2.5);
+dirLight.position.set(2, 4, 2);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+const fillLight = new THREE.DirectionalLight(0xe0eeff, 0.8);
+fillLight.position.set(-2, 2, -1);
+scene.add(fillLight);
+
+// ─── Wardrobe Model (procedural) ─────────────────────────
+function buildWardrobe() {
+  const group = new THREE.Group();
+
+  const woodMat = new THREE.MeshStandardMaterial({
+    color: 0xc8a96e, roughness: 0.7, metalness: 0.0
+  });
+  const darkMat = new THREE.MeshStandardMaterial({
+    color: 0x3d2b1f, roughness: 0.8, metalness: 0.0
+  });
+  const handleMat = new THREE.MeshStandardMaterial({
+    color: 0xb0986a, roughness: 0.3, metalness: 0.6
+  });
+  const edgeMat = new THREE.MeshStandardMaterial({
+    color: 0x5a3e28, roughness: 0.9
+  });
+
+  const W = 1.0, H = 2.0, D = 0.55;
+  const t = 0.03; // thickness
+
+  // Body panels
+  const panels = [
+    // top
+    { s: [W, t, D], p: [0, H/2, 0] },
+    // bottom
+    { s: [W, t, D], p: [0, -H/2, 0] },
+    // left side
+    { s: [t, H, D], p: [-W/2, 0, 0] },
+    // right side
+    { s: [t, H, D], p: [W/2, 0, 0] },
+    // back
+    { s: [W, H, t*0.5], p: [0, 0, -D/2] },
+    // middle shelf
+    { s: [W - t*2, t, D - t], p: [0, 0.15, 0] },
+    // center divider
+    { s: [t, H - t*2, D - t], p: [0, 0, 0] },
+  ];
+
+  panels.forEach(({ s, p }) => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(...s),
+      woodMat
+    );
+    mesh.position.set(...p);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+
+  // Doors (2 — left and right halves)
+  const doorW = (W - t * 3) / 2;
+  const doorH = H - t * 2;
+
+  [-1, 1].forEach(side => {
+    const doorGroup = new THREE.Group();
+    doorGroup.position.set(side * (doorW / 2 + t / 2), 0, D / 2);
+
+    // Door panel
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(doorW, doorH, t),
+      new THREE.MeshStandardMaterial({ color: 0xd4aa75, roughness: 0.65 })
+    );
+    door.castShadow = true;
+    doorGroup.add(door);
+
+    // Door frame inset detail
+    const inset = new THREE.Mesh(
+      new THREE.BoxGeometry(doorW * 0.78, doorH * 0.38, t * 0.4),
+      edgeMat
+    );
+    inset.position.set(0, doorH * 0.27, t * 0.3);
+    doorGroup.add(inset);
+
+    const inset2 = new THREE.Mesh(
+      new THREE.BoxGeometry(doorW * 0.78, doorH * 0.5, t * 0.4),
+      edgeMat
+    );
+    inset2.position.set(0, -doorH * 0.2, t * 0.3);
+    doorGroup.add(inset2);
+
+    // Handle
+    const handle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012, 0.012, 0.12, 12),
+      handleMat
+    );
+    handle.rotation.z = Math.PI / 2;
+    handle.position.set(-side * (doorW * 0.38), 0, t * 0.7);
+    doorGroup.add(handle);
+
+    // Handle backing plate
+    const plate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.035, 0.008),
+      handleMat
+    );
+    plate.position.set(-side * (doorW * 0.38), 0, t * 0.65);
+    doorGroup.add(plate);
+
+    group.add(doorGroup);
+  });
+
+  // Legs (4 small feet)
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+    const leg = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.06, 0.06),
+      darkMat
+    );
+    leg.position.set(sx * (W / 2 - 0.06), -H / 2 - 0.03, sz * (D / 2 - 0.06));
+    group.add(leg);
+  });
+
+  // Top crown molding
+  const crown = new THREE.Mesh(
+    new THREE.BoxGeometry(W + 0.04, 0.04, D + 0.04),
+    edgeMat
+  );
+  crown.position.set(0, H / 2 + 0.02, 0);
+  group.add(crown);
+
+  return group;
+}
+
+// ─── Placement ───────────────────────────────────────────
+const wardrobe = buildWardrobe();
+wardrobe.visible = false;
+scene.add(wardrobe);
+
+// Placement indicator (ring on floor)
+const ringGeo = new THREE.RingGeometry(0.45, 0.5, 48);
+ringGeo.rotateX(-Math.PI / 2);
+const ringMat = new THREE.MeshBasicMaterial({
+  color: 0x88ddcc, transparent: true, opacity: 0.7, side: THREE.DoubleSide
+});
+const placementRing = new THREE.Mesh(ringGeo, ringMat);
+scene.add(placementRing);
+
+const arrowGeo = new THREE.ConeGeometry(0.04, 0.12, 12);
+arrowGeo.rotateX(Math.PI / 2);
+const arrow = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({ color: 0x88ddcc }));
+arrow.position.set(0, 0.06, -0.4);
+placementRing.add(arrow);
+
+// ─── Hit test ────────────────────────────────────────────
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+let placed = false;
+let wardrobeY = 0;
+
+// ─── Controllers ─────────────────────────────────────────
+const controllerModelFactory = new XRControllerModelFactory();
+
+function onSelectStart() {
+  if (!placed) {
+    placed = true;
+    wardrobe.visible = true;
+    // Place wardrobe exactly at hit point on floor, center at floor level
+    wardrobe.position.set(
+      placementRing.position.x,
+      placementRing.position.y + 1.0, // 1.0 = half of wardrobe height (H=2.0)
+      placementRing.position.z
+    );
+    placementRing.visible = false;
+    setStatus('ארון מוצב · THUMBSTICK לסובב / שנה גודל');
+    document.getElementById('controls').classList.add('visible');
+  }
+}
+
+const controller1 = renderer.xr.getController(0);
+controller1.addEventListener('selectstart', onSelectStart);
+scene.add(controller1);
+
+const controller2 = renderer.xr.getController(1);
+controller2.addEventListener('selectstart', onSelectStart);
+scene.add(controller2);
+
+const grip1 = renderer.xr.getControllerGrip(0);
+grip1.add(controllerModelFactory.createControllerModel(grip1));
+scene.add(grip1);
+
+const grip2 = renderer.xr.getControllerGrip(1);
+grip2.add(controllerModelFactory.createControllerModel(grip2));
+scene.add(grip2);
+
+// ─── Thumbstick for rotate / scale ───────────────────────
+let rotationY = 0;
+let scaleVal = 1.0;
+
+// ─── XR Session setup ────────────────────────────────────
+renderer.xr.addEventListener('sessionstart', async () => {
+  const session = renderer.xr.getSession();
+  document.getElementById('overlay').style.display = 'none';
+  setStatus('כוון למשטח · לחץ Trigger למיקום');
+
+  // Use local-floor so the scene is anchored to the real floor (fixes the "bubble" problem)
+  const floorSpace = await session.requestReferenceSpace('local-floor');
+  renderer.xr.setReferenceSpace(floorSpace);
+
+  // Request hit test source from viewer (camera direction)
+  const viewerSpace = await session.requestReferenceSpace('viewer');
+  hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+
+  session.addEventListener('end', () => {
+    hitTestSource = null;
+    hitTestSourceRequested = false;
+    document.getElementById('overlay').style.display = 'flex';
+    placed = false;
+    wardrobe.visible = false;
+    placementRing.visible = true;
+    document.getElementById('controls').classList.remove('visible');
+  });
+});
+
+// ─── WebXR button ─────────────────────────────────────────
+const supported = await navigator.xr?.isSessionSupported('immersive-ar').catch(() => false);
+
+if (supported) {
+  document.getElementById('xr-btn').addEventListener('click', () => {
+    navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test', 'local-floor'],
+      optionalFeatures: ['hand-tracking']
+    }).then(session => {
+      renderer.xr.setSession(session);
+    }).catch(err => {
+      setStatus('שגיאה: ' + err.message);
+    });
+  });
+} else {
+  document.getElementById('xr-btn').disabled = true;
+  document.getElementById('not-supported').style.display = 'block';
+  setStatus('דפדפן זה לא תומך ב-WebXR AR. פתח ב-Meta Quest Browser.');
+}
+
+// ─── Desktop controls (for development) ──────────────────
+document.getElementById('btn-rotate-l').addEventListener('click', () => { rotationY += 0.2; wardrobe.rotation.y = rotationY; });
+document.getElementById('btn-rotate-r').addEventListener('click', () => { rotationY -= 0.2; wardrobe.rotation.y = rotationY; });
+document.getElementById('btn-scale-up').addEventListener('click', () => { scaleVal = Math.min(2.5, scaleVal + 0.1); wardrobe.scale.setScalar(scaleVal); });
+document.getElementById('btn-scale-dn').addEventListener('click', () => { scaleVal = Math.max(0.3, scaleVal - 0.1); wardrobe.scale.setScalar(scaleVal); });
+
+// ─── Render loop ─────────────────────────────────────────
+const clock = new THREE.Clock();
+
+renderer.setAnimationLoop((timestamp, frame) => {
+  const t = clock.getElapsedTime();
+
+  // Animate placement ring pulse
+  if (!placed) {
+    ringMat.opacity = 0.5 + 0.25 * Math.sin(t * 3);
+  }
+
+  // Hit test
+  if (frame && hitTestSource && !placed) {
+    const hitTestResults = frame.getHitTestResults(hitTestSource);
+    if (hitTestResults.length > 0) {
+      const hit = hitTestResults[0];
+      const refSpace = renderer.xr.getReferenceSpace();
+      const pose = hit.getPose(refSpace);
+      if (pose) {
+        placementRing.visible = true;
+        placementRing.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
+        wardrobeY = placementRing.position.y;
+      }
+    } else {
+      placementRing.visible = false;
+    }
+  }
+
+  // Controller thumbstick
+  const session = renderer.xr.getSession();
+  if (session && placed) {
+    for (const source of session.inputSources) {
+      if (!source.gamepad) continue;
+      const axes = source.gamepad.axes;
+      if (axes.length >= 4) {
+        // axes[2] = thumbstick X, axes[3] = thumbstick Y
+        const dx = axes[2];
+        const dy = axes[3];
+        if (Math.abs(dx) > 0.15) { rotationY -= dx * 0.03; wardrobe.rotation.y = rotationY; }
+        if (Math.abs(dy) > 0.15) { scaleVal = Math.max(0.3, Math.min(2.5, scaleVal - dy * 0.01)); wardrobe.scale.setScalar(scaleVal); }
+      }
+    }
+  }
+
+  renderer.render(scene, camera);
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+</script>
+</body>
+</html>
