@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>מטבח AR — MVP</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0d0d0d; overflow:hidden; font-family:'Segoe UI',Arial,sans-serif; direction:rtl; }
+
+/* ── Overlay ── */
+#overlay {
+  position:fixed; inset:0;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  background:linear-gradient(160deg,#0d0d0d,#1a1a2e);
+  color:#f0ece0; z-index:100; gap:1.5rem; padding:2rem;
+}
+#overlay h1 { font-size:1.8rem; font-weight:300; letter-spacing:0.1em; }
+#overlay p { font-size:0.9rem; color:#999; text-align:center; line-height:1.8; max-width:320px; }
+#xr-btn {
+  padding:14px 40px; background:transparent;
+  border:1px solid #f0ece0; color:#f0ece0;
+  font-size:0.9rem; letter-spacing:0.15em;
+  cursor:pointer; transition:all 0.2s;
+  border-radius:2px;
+}
+#xr-btn:hover { background:#f0ece0; color:#0d0d0d; }
+#xr-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.logo { font-size:2.5rem; }
+
+/* ── HUD ── */
+#hud {
+  position:fixed; inset:0; display:none;
+  pointer-events:none; z-index:50;
+}
+#hud.visible { display:block; }
+
+#status-bar {
+  position:absolute; top:1rem; left:50%; transform:translateX(-50%);
+  background:rgba(0,0,0,0.6); color:#fff;
+  padding:8px 20px; border-radius:20px;
+  font-size:0.8rem; letter-spacing:0.05em;
+  backdrop-filter:blur(8px);
+  pointer-events:none;
+}
+
+/* ── קטלוג ── */
+#catalog {
+  position:fixed; bottom:0; left:0; right:0;
+  background:rgba(10,10,20,0.92);
+  backdrop-filter:blur(12px);
+  border-top:1px solid rgba(255,255,255,0.1);
+  padding:1rem;
+  display:none; flex-direction:column; gap:0.8rem;
+  z-index:200; pointer-events:all;
+  direction:rtl;
+}
+#catalog.visible { display:flex; }
+
+#catalog h3 {
+  color:#f0ece0; font-size:0.85rem;
+  font-weight:400; letter-spacing:0.08em;
+  text-align:center;
+}
+
+.catalog-items {
+  display:flex; gap:0.6rem; overflow-x:auto;
+  padding-bottom:0.3rem;
+  justify-content:center;
+  flex-direction:row-reverse;
+}
+.cat-item {
+  min-width:90px; padding:10px 8px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.15);
+  border-radius:6px; cursor:pointer;
+  color:#f0ece0; text-align:center;
+  transition:all 0.15s; font-size:0.75rem;
+  pointer-events:all;
+}
+.cat-item:hover, .cat-item.active {
+  background:rgba(255,255,255,0.18);
+  border-color:#f0ece0;
+}
+.cat-item .icon { font-size:1.4rem; display:block; margin-bottom:4px; }
+.cat-item .name { display:block; font-size:0.72rem; }
+.cat-item .size { display:block; font-size:0.65rem; color:#aaa; margin-top:2px; }
+
+/* ── צבעים ── */
+.color-row {
+  display:flex; gap:8px; justify-content:center; align-items:center;
+  flex-direction:row-reverse;
+}
+.color-row span { font-size:0.75rem; color:#aaa; margin-left:6px; }
+.color-dot {
+  width:28px; height:28px; border-radius:50%;
+  cursor:pointer; border:2px solid transparent;
+  transition:border 0.15s; pointer-events:all;
+}
+.color-dot.active { border-color:#fff; }
+
+/* ── כפתורי פעולה ── */
+.action-row {
+  display:flex; gap:8px; justify-content:center;
+  flex-direction:row-reverse;
+}
+.action-btn {
+  padding:10px 18px; border-radius:4px;
+  font-size:0.78rem; cursor:pointer;
+  letter-spacing:0.05em; pointer-events:all;
+  border:none; transition:all 0.15s;
+}
+#btn-place {
+  background:#2ecc71; color:#000; font-weight:600;
+}
+#btn-place:disabled { background:#444; color:#888; cursor:not-allowed; }
+#btn-remove {
+  background:transparent; color:#e74c3c;
+  border:1px solid #e74c3c;
+}
+#btn-send {
+  background:#3498db; color:#fff; font-weight:600;
+}
+
+/* ── מידות HUD ── */
+#dimensions {
+  position:fixed; top:5rem; right:1rem;
+  background:rgba(0,0,0,0.65); color:#f0ece0;
+  padding:10px 14px; border-radius:6px;
+  font-size:0.75rem; line-height:2;
+  backdrop-filter:blur(8px);
+  display:none; direction:rtl;
+  pointer-events:none; z-index:200;
+}
+#dimensions.visible { display:block; }
+
+/* ── מודל שליחה ── */
+#modal {
+  position:fixed; inset:0; background:rgba(0,0,0,0.85);
+  display:none; align-items:center; justify-content:center;
+  z-index:300; padding:1.5rem;
+}
+#modal.visible { display:flex; }
+#modal-box {
+  background:#1a1a2e; border:1px solid rgba(255,255,255,0.15);
+  border-radius:10px; padding:1.5rem; max-width:340px; width:100%;
+  color:#f0ece0; direction:rtl;
+}
+#modal-box h2 { font-size:1.1rem; font-weight:400; margin-bottom:1rem; }
+#modal-box .summary-line {
+  display:flex; justify-content:space-between;
+  padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.08);
+  font-size:0.82rem;
+}
+#modal-box .summary-line span:last-child { color:#aaa; }
+#modal-close {
+  margin-top:1.2rem; width:100%; padding:10px;
+  background:#2ecc71; color:#000; border:none;
+  border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600;
+}
+#modal-note {
+  margin-top:0.8rem; font-size:0.72rem; color:#888; text-align:center;
+}
+</style>
+</head>
+<body>
+
+<!-- Overlay התחלה -->
+<div id="overlay">
+  <div class="logo">🏠</div>
+  <h1>מטבח AR</h1>
+  <p>מקם ארונות מטבח בחדר שלך<br>וראה איך הם נראים לפני הייצור</p>
+  <button id="xr-btn">התחל חוויית AR</button>
+</div>
+
+<!-- HUD בתוך AR -->
+<div id="hud">
+  <div id="status-bar">כוון לקיר או רצפה ולחץ Trigger</div>
+</div>
+
+<!-- מידות -->
+<div id="dimensions">
+  <div>📐 מידות הארון</div>
+  <div id="dim-w">רוחב: —</div>
+  <div id="dim-h">גובה: —</div>
+  <div id="dim-d">עומק: —</div>
+  <div id="dim-color">גוון: —</div>
+</div>
+
+<!-- קטלוג -->
+<div id="catalog">
+  <h3>בחר ארון</h3>
+  <div class="catalog-items" id="catalog-items"></div>
+
+  <div class="color-row">
+    <span>גוון:</span>
+  </div>
+  <div class="color-row" id="color-row"></div>
+
+  <div class="action-row">
+    <button class="action-btn" id="btn-place">📍 מקם בחדר</button>
+    <button class="action-btn" id="btn-remove">🗑 הסר</button>
+    <button class="action-btn" id="btn-send">📨 שלח לנגר</button>
+  </div>
+</div>
+
+<!-- מודל שליחה -->
+<div id="modal">
+  <div id="modal-box">
+    <h2>✅ פרטי הארון לנגר</h2>
+    <div id="modal-summary"></div>
+    <div id="modal-note">במערכת המלאה — הפרטים נשלחים ישירות לנגר עם תמחיר אוטומטי</div>
+    <button id="modal-close">סגור</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+
+// ── קטלוג ארונות ──────────────────────────────────────────
+const CABINETS = [
+  { id:'base60',  name:'תחתון 60',  icon:'🟫', w:0.60, h:0.85, d:0.58, type:'base' },
+  { id:'base90',  name:'תחתון 90',  icon:'🟫', w:0.90, h:0.85, d:0.58, type:'base' },
+  { id:'wall60',  name:'עליון 60',  icon:'🟧', w:0.60, h:0.70, d:0.35, type:'wall' },
+  { id:'tall',    name:'עמוד מלא', icon:'🟥', w:0.60, h:2.10, d:0.58, type:'tall' },
+];
+
+const COLORS = [
+  { name:'לבן',      hex:0xf5f0e8, label:'לבן' },
+  { name:'אפור',     hex:0x8a8a8a, label:'אפור' },
+  { name:'אנתרציט', hex:0x3a3a3a, label:'אנתרציט' },
+  { name:'עץ טבעי', hex:0xc8a96e, label:'עץ' },
+  { name:'כחול',    hex:0x4a6fa5, label:'כחול' },
+];
+
+// ── Renderer ───────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 50);
+scene.add(camera);
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.8));
+const sun = new THREE.DirectionalLight(0xfff5e0, 2.0);
+sun.position.set(2,4,2); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xe0f0ff, 0.6);
+fill.position.set(-2,1,-1); scene.add(fill);
+
+// ── בניית ארון ────────────────────────────────────────────
+function buildCabinet(spec, colorHex) {
+  const g = new THREE.Group();
+  const { w, h, d } = spec;
+  const t = 0.018;
+
+  const body = new THREE.MeshStandardMaterial({ color:colorHex, roughness:0.55, metalness:0.05 });
+  const inner = new THREE.MeshStandardMaterial({ color:0xf5f5f0, roughness:0.8 });
+  const handle = new THREE.MeshStandardMaterial({ color:0xb0a090, roughness:0.3, metalness:0.7 });
+  const edge = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(colorHex).multiplyScalar(0.75),
+    roughness:0.7
+  });
+
+  // גוף
+  const panels = [
+    [w, t, d,   0, h/2, 0],      // עליון
+    [w, t, d,   0,-h/2, 0],      // תחתון
+    [t, h, d,  -w/2, 0, 0],      // שמאל
+    [t, h, d,   w/2, 0, 0],      // ימין
+    [w-t*2, h-t*2, t, 0, 0, -d/2+t], // גב
+  ];
+  panels.forEach(([pw,ph,pd,px,py,pz], i)=>{
+    const m = new THREE.Mesh(new THREE.BoxGeometry(pw,ph,pd), i===4 ? inner : body);
+    m.position.set(px,py,pz); g.add(m);
+  });
+
+  // דלת
+  const doorW = w - t*2 - 0.004;
+  const doorH = h - t*2 - 0.004;
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(doorW, doorH, t*1.2),
+    new THREE.MeshStandardMaterial({ color:colorHex, roughness:0.4, metalness:0.05 })
+  );
+  door.position.set(0, 0, d/2);
+  g.add(door);
+
+  // פס קצה דלת
+  const edgeStrip = new THREE.Mesh(new THREE.BoxGeometry(doorW+0.002, doorH+0.002, t*0.3), edge);
+  edgeStrip.position.set(0, 0, d/2 - t*0.6);
+  g.add(edgeStrip);
+
+  // ידית
+  const hBar = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, doorW*0.5, 12), handle);
+  hBar.rotation.z = Math.PI/2;
+  hBar.position.set(0, -doorH*0.3, d/2 + 0.025);
+  g.add(hBar);
+
+  // גורי ידית
+  [-1,1].forEach(s => {
+    const nub = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 8), handle);
+    nub.position.set(s * doorW*0.25, -doorH*0.3, d/2 + 0.025);
+    g.add(nub);
+  });
+
+  // קרשים בתוך הארון (גלויים מעט)
+  if (spec.type === 'tall' || spec.h > 1.0) {
+    [0.3, -0.3].forEach(sy => {
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(w-t*2, t, d-t*2-0.01), inner);
+      shelf.position.set(0, sy, 0);
+      g.add(shelf);
+    });
+  }
+
+  return g;
+}
+
+// ── Placement ring ─────────────────────────────────────────
+const ringGeo = new THREE.RingGeometry(0.3, 0.34, 48);
+ringGeo.rotateX(-Math.PI/2);
+const ringMat = new THREE.MeshBasicMaterial({
+  color:0x00ffcc, transparent:true, opacity:0.85, side:THREE.DoubleSide
+});
+const ring = new THREE.Mesh(ringGeo, ringMat);
+ring.visible = false;
+scene.add(ring);
+
+// ── State ──────────────────────────────────────────────────
+let hitTestSource = null;
+let currentMesh = null;
+let placed = false;
+let rotY = 0, scaleV = 1.0;
+let selectedCabinet = CABINETS[0];
+let selectedColor = COLORS[0];
+let placedList = []; // רשימת ארונות שמוקמו
+
+function buildAndShow() {
+  if (currentMesh) { scene.remove(currentMesh); currentMesh = null; }
+  currentMesh = buildCabinet(selectedCabinet, selectedColor.hex);
+  currentMesh.visible = false;
+  scene.add(currentMesh);
+  updateDimensions();
+}
+
+function updateDimensions() {
+  const s = selectedCabinet;
+  document.getElementById('dim-w').textContent = `רוחב: ${(s.w*100).toFixed(0)} ס"מ`;
+  document.getElementById('dim-h').textContent = `גובה: ${(s.h*100).toFixed(0)} ס"מ`;
+  document.getElementById('dim-d').textContent = `עומק: ${(s.d*100).toFixed(0)} ס"מ`;
+  document.getElementById('dim-color').textContent = `גוון: ${selectedColor.label}`;
+  document.getElementById('dimensions').classList.add('visible');
+}
+
+// ── בניית UI קטלוג ────────────────────────────────────────
+const catContainer = document.getElementById('catalog-items');
+CABINETS.forEach((cab, i) => {
+  const el = document.createElement('div');
+  el.className = 'cat-item' + (i===0?' active':'');
+  el.innerHTML = `<span class="icon">${cab.icon}</span><span class="name">${cab.name}</span><span class="size">${(cab.w*100).toFixed(0)}×${(cab.h*100).toFixed(0)} ס"מ</span>`;
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.cat-item').forEach(e=>e.classList.remove('active'));
+    el.classList.add('active');
+    selectedCabinet = cab;
+    placed = false;
+    buildAndShow();
+    setStatus('כוון לקיר/רצפה ולחץ Trigger');
+  });
+  catContainer.appendChild(el);
+});
+
+const colorRow = document.getElementById('color-row');
+COLORS.forEach((c, i) => {
+  const dot = document.createElement('div');
+  dot.className = 'color-dot' + (i===0?' active':'');
+  dot.style.background = '#' + c.hex.toString(16).padStart(6,'0');
+  dot.title = c.label;
+  dot.addEventListener('click', () => {
+    document.querySelectorAll('.color-dot').forEach(e=>e.classList.remove('active'));
+    dot.classList.add('active');
+    selectedColor = c;
+    buildAndShow();
+  });
+  colorRow.appendChild(dot);
+});
+
+// ── כפתורים ───────────────────────────────────────────────
+document.getElementById('btn-place').addEventListener('click', () => {
+  if (ring.visible && currentMesh) {
+    // שמור עותק
+    const copy = buildCabinet(selectedCabinet, selectedColor.hex);
+    copy.position.copy(currentMesh.position);
+    copy.rotation.y = rotY;
+    copy.scale.setScalar(scaleV);
+    scene.add(copy);
+    placedList.push({ mesh:copy, spec:selectedCabinet, color:selectedColor });
+    placed = false;
+    buildAndShow();
+    setStatus(`✅ ${selectedCabinet.name} מוקם! אפשר להוסיף עוד`);
+  }
+});
+
+document.getElementById('btn-remove').addEventListener('click', () => {
+  if (placedList.length > 0) {
+    const last = placedList.pop();
+    scene.remove(last.mesh);
+    setStatus('הוסר הארון האחרון');
+  }
+});
+
+document.getElementById('btn-send').addEventListener('click', () => {
+  const modal = document.getElementById('modal');
+  const summary = document.getElementById('modal-summary');
+  let html = '';
+  if (placedList.length === 0) {
+    html = '<div class="summary-line"><span>לא מוקמו ארונות עדיין</span></div>';
+  } else {
+    placedList.forEach((item, i) => {
+      html += `<div class="summary-line">
+        <span>${i+1}. ${item.spec.name}</span>
+        <span>${(item.spec.w*100).toFixed(0)}×${(item.spec.h*100).toFixed(0)}×${(item.spec.d*100).toFixed(0)} ס"מ · ${item.color.label}</span>
+      </div>`;
+    });
+    html += `<div class="summary-line" style="margin-top:8px;font-weight:600">
+      <span>סה"כ ארונות</span><span>${placedList.length}</span>
+    </div>`;
+  }
+  summary.innerHTML = html;
+  modal.classList.add('visible');
+});
+
+document.getElementById('modal-close').addEventListener('click', () => {
+  document.getElementById('modal').classList.remove('visible');
+});
+
+// ── Controllers ────────────────────────────────────────────
+const cmf = new XRControllerModelFactory();
+
+function onSelect() {
+  if (currentMesh && ring.visible) {
+    currentMesh.visible = true;
+    currentMesh.position.set(
+      ring.position.x,
+      ring.position.y + selectedCabinet.h / 2,
+      ring.position.z
+    );
+    currentMesh.rotation.y = rotY;
+    placed = true;
+    setStatus('✅ ממוקם — Thumbstick לסובב/גודל · לחץ "מקם" לשמור');
+    document.getElementById('btn-place').disabled = false;
+  }
+}
+
+[0,1].forEach(i => {
+  const c = renderer.xr.getController(i);
+  c.addEventListener('selectstart', onSelect);
+  scene.add(c);
+  const grip = renderer.xr.getControllerGrip(i);
+  grip.add(cmf.createControllerModel(grip));
+  scene.add(grip);
+});
+
+// ── Session ────────────────────────────────────────────────
+renderer.xr.addEventListener('sessionstart', async () => {
+  const session = renderer.xr.getSession();
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('hud').classList.add('visible');
+  document.getElementById('catalog').classList.add('visible');
+  document.getElementById('btn-place').disabled = true;
+
+  buildAndShow();
+
+  const floorSpace = await session.requestReferenceSpace('local-floor');
+  renderer.xr.setReferenceSpace(floorSpace);
+
+  const viewerSpace = await session.requestReferenceSpace('viewer');
+  hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+
+  session.addEventListener('end', () => {
+    hitTestSource = null; placed = false;
+    placedList.forEach(p => scene.remove(p.mesh));
+    placedList = [];
+    if (currentMesh) { scene.remove(currentMesh); currentMesh = null; }
+    ring.visible = false;
+    document.getElementById('overlay').style.display = 'flex';
+    document.getElementById('hud').classList.remove('visible');
+    document.getElementById('catalog').classList.remove('visible');
+    document.getElementById('dimensions').classList.remove('visible');
+  });
+});
+
+// ── XR Button ──────────────────────────────────────────────
+const supported = await navigator.xr?.isSessionSupported('immersive-ar').catch(()=>false);
+if (supported) {
+  document.getElementById('xr-btn').addEventListener('click', () => {
+    navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test','local-floor'],
+      optionalFeatures: ['hand-tracking','anchors']
+    }).then(s => renderer.xr.setSession(s))
+      .catch(e => alert('שגיאה: ' + e.message));
+  });
+} else {
+  document.getElementById('xr-btn').disabled = true;
+  document.getElementById('xr-btn').textContent = 'פתח ב-Quest Browser';
+}
+
+// ── Render loop ────────────────────────────────────────────
+const clock = new THREE.Clock();
+const _mat4 = new THREE.Matrix4();
+
+renderer.setAnimationLoop((_, frame) => {
+  const t = clock.getElapsedTime();
+  ringMat.opacity = 0.5 + 0.3*Math.sin(t*4);
+
+  if (frame) {
+    const refSpace = renderer.xr.getReferenceSpace();
+
+    // hit test
+    if (hitTestSource && !placed) {
+      const hits = frame.getHitTestResults(hitTestSource);
+      if (hits.length > 0) {
+        const pose = hits[0].getPose(refSpace);
+        if (pose) {
+          _mat4.fromArray(pose.transform.matrix);
+          ring.visible = true;
+          ring.position.setFromMatrixPosition(_mat4);
+          // preview ארון
+          if (currentMesh) {
+            currentMesh.visible = true;
+            currentMesh.position.set(
+              ring.position.x,
+              ring.position.y + selectedCabinet.h/2,
+              ring.position.z
+            );
+            currentMesh.rotation.y = rotY;
+          }
+        }
+      } else {
+        ring.visible = false;
+        if (currentMesh && !placed) currentMesh.visible = false;
+      }
+    }
+
+    // thumbstick
+    const session = renderer.xr.getSession();
+    if (session) {
+      for (const src of session.inputSources) {
+        if (!src.gamepad) continue;
+        const ax = src.gamepad.axes;
+        if (ax.length >= 4) {
+          if (Math.abs(ax[2]) > 0.12) {
+            rotY -= ax[2]*0.03;
+            if (currentMesh) currentMesh.rotation.y = rotY;
+          }
+          if (Math.abs(ax[3]) > 0.12) {
+            scaleV = Math.max(0.5, Math.min(2.0, scaleV - ax[3]*0.01));
+            if (currentMesh) currentMesh.scale.setScalar(scaleV);
+          }
+        }
+      }
+    }
+  }
+
+  renderer.render(scene, camera);
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+function setStatus(msg) {
+  document.getElementById('status-bar').textContent = msg;
+}
+</script>
+</body>
+</html>
